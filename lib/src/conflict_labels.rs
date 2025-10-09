@@ -91,6 +91,27 @@ impl ConflictLabels {
             (Self::unlabeled(), simplified)
         }
     }
+
+    /// Returns optional labels for each term in a merge. If the merge is
+    /// resolved, returns `resolved_label` instead.
+    pub fn by_term<'a>(
+        &'a self,
+        num_sides: usize,
+        resolved_label: Option<&'a str>,
+    ) -> Merge<Option<&'a str>> {
+        if num_sides == 1 {
+            assert!(self.labels.is_none());
+            Merge::resolved(resolved_label)
+        } else {
+            self.labels.as_ref().map_or_else(
+                || Merge::repeated(None, num_sides),
+                |labels| {
+                    assert_eq!(num_sides, labels.num_sides());
+                    labels.map(|label| Some(label.as_str()))
+                },
+            )
+        }
+    }
 }
 
 impl From<Option<Merge<String>>> for ConflictLabels {
@@ -151,5 +172,29 @@ mod tests {
                 String::from("right")
             ]
         );
+    }
+
+    #[test]
+    fn test_conflict_labels_by_term_unlabeled() {
+        let labels = ConflictLabels::unlabeled();
+
+        insta::assert_compact_debug_snapshot!(labels.by_term(2, None),
+            @"Conflicted([None, None, None])");
+
+        // We can't use the resolved label since there are multiple sides, and it would
+        // be confusing to repeat labels.
+        insta::assert_compact_debug_snapshot!(labels.by_term(2, Some("resolved label")),
+            @"Conflicted([None, None, None])");
+    }
+
+    #[test]
+    fn test_conflict_labels_by_term_labeled() {
+        let labels = ConflictLabels::from(Some(Merge::from_vec(vec!["left", "base", "right"])));
+
+        insta::assert_compact_debug_snapshot!(labels.by_term(2, None),
+            @r#"Conflicted([Some("left"), Some("base"), Some("right")])"#);
+
+        insta::assert_compact_debug_snapshot!(labels.by_term(2, Some("resolved label")),
+            @r#"Conflicted([Some("left"), Some("base"), Some("right")])"#);
     }
 }
