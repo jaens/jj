@@ -42,6 +42,13 @@ impl ConflictLabels {
         }
     }
 
+    /// Create a `ConflictLabels` from a `Vec<String>`, with an empty vec
+    /// representing no labels.
+    pub fn from_vec(labels: Vec<String>) -> Self {
+        let merge = (!labels.is_empty()).then(|| Merge::from_vec(labels));
+        Self::new(merge)
+    }
+
     /// Returns true if there are labels present.
     pub fn is_present(&self) -> bool {
         self.labels.is_some()
@@ -61,6 +68,28 @@ impl ConflictLabels {
     /// necessary.
     pub fn into_merge(self) -> Option<Merge<String>> {
         self.labels.map(Arc::unwrap_or_clone)
+    }
+
+    /// Returns the conflict labels as a slice. If there are no labels, returns
+    /// an empty slice.
+    pub fn as_slice(&self) -> &[String] {
+        self.as_merge().map_or(&[], |labels| labels.as_slice())
+    }
+
+    /// Simplify a merge with the same number of sides while preserving the
+    /// conflict labels corresponding to each side of the merge.
+    pub fn simplify_with<T: PartialEq + Clone>(&self, merge: &Merge<T>) -> (Self, Merge<T>) {
+        if let Some(labels) = self.as_merge() {
+            let (labels, simplified) = labels
+                .as_ref()
+                .zip(merge.as_ref())
+                .simplify_by(|&(_label, item)| item)
+                .unzip();
+            (Self::new(Some(labels.cloned())), simplified.cloned())
+        } else {
+            let simplified = merge.simplify();
+            (Self::unlabeled(), simplified)
+        }
     }
 }
 
@@ -83,5 +112,44 @@ impl fmt::Debug for ConflictLabels {
         } else {
             write!(f, "Unlabeled")
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_conflict_labels_from_vec() {
+        // From empty vec for unlabeled
+        assert_eq!(
+            ConflictLabels::from_vec(vec![]),
+            ConflictLabels::unlabeled()
+        );
+        // From non-empty vec of terms
+        assert_eq!(
+            ConflictLabels::from_vec(vec![
+                String::from("left"),
+                String::from("base"),
+                String::from("right")
+            ]),
+            ConflictLabels::from(Some(Merge::from_vec(vec!["left", "base", "right"])))
+        );
+    }
+
+    #[test]
+    fn test_conflict_labels_as_slice() {
+        // Empty slice for unlabeled
+        let empty: &[String] = &[];
+        assert_eq!(ConflictLabels::unlabeled().as_slice(), empty);
+        // Slice of terms for labeled
+        assert_eq!(
+            ConflictLabels::from(Some(Merge::from_vec(vec!["left", "base", "right"]))).as_slice(),
+            &[
+                String::from("left"),
+                String::from("base"),
+                String::from("right")
+            ]
+        );
     }
 }
